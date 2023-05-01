@@ -1,5 +1,5 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import input_file_name, col, to_date, explode, lit
+from pyspark.sql.functions import input_file_name, col, to_date, explode, lit, date_format, hour
 from pyspark.sql.types import (
     StructType,
     StringType,
@@ -10,11 +10,14 @@ from pyspark.sql.types import (
 )
 
 # create a SparkSession
-spark = SparkSession.builder.appName("Big Data Processing JSON Files").getOrCreate()
+spark = SparkSession.builder.appName("Big Data Processing JSON Files")\
+    .config("spark.sql.warehouse.dir", "file:/C:/tempwarhouse/") \
+    .config("spark.sql.shuffle.partitions", 100)\
+    .getOrCreate()
 
 # specify the path to the folder containing JSON files
-folder_path = "C:/Users/dakpr/Downloads/events/events/"
-output_path = "C:/Users/dakpr/Downloads/events/outputs1/"
+folder_path = "events/"
+output_path = "file:/C:/tempwarhouse/"
 
 # define schema
 new_schema = StructType(
@@ -59,8 +62,13 @@ new_schema = StructType(
     ]
 )
 # read all JSON files from the folder
-df = spark.read.format("json").schema(new_schema).load(folder_path)
+# df = spark.read.format("json").schema(new_schema).load(folder_path)
 
+df = spark.read.format("json").option("multiLine", "true").option("inferSchema","true").load(folder_path)
+
+df = df.repartition("type")
+
+#
 # Add filename column to dataframe
 df = df.withColumn("filename", input_file_name())
 
@@ -82,6 +90,8 @@ df = df.select(
     col("eventData.sensorData.wheels").alias("wheels"),
     col("vehicleId"),
     to_date(col("timestamp")).alias("date"),
+    hour("timestamp").alias("Hour"),
+    col("filename")
 )
 
 # print schema
@@ -98,6 +108,7 @@ location_events_df = df.select(
     col("longitude"),
     col("vehicleId"),
     col("date"),
+    col("Hour")
 ).filter(col("type") == "LOCATION")
 diagnostic_events_df = (
     df.select(
@@ -113,6 +124,7 @@ diagnostic_events_df = (
         explode(col("wheels")).alias("wheels"),
         col("vehicleId"),
         col("date"),
+        col("Hour")
     ).select(
         "timestamp",
         "subtype",
@@ -130,6 +142,7 @@ diagnostic_events_df = (
         "wheels.uom",
         "vehicleId",
         "date",
+        "Hour"
     ).filter(col("type") == "DIAGNOSTIC")
 )
 
@@ -141,9 +154,13 @@ location_events_schema = StructType(
             StructField("latitude", StringType(), True),
             StructField("longitude", StringType(), True),
             StructField("vehicleId", StringType(), True),
-            StructField("date", DateType(), True)
+            StructField("date", DateType(), True),
+            StructField("Hour", IntegerType(), True)
     ]
 )
+
+# fs = spark._jvm.org.apache.hadoop.fs.FileSystem.get(spark._jsc.hadoopConfiguration())
+# fs.mkdirs(spark._jvm.org.apache.hadoop.fs.Path(output_path + "location_events_output"))
 
 numBuckets = 2
 
@@ -151,13 +168,13 @@ location_events_df \
     .repartition(numBuckets, "eventId") \
     .write \
     .format("parquet") \
-    .partitionBy("date") \
+    .partitionBy("date","Hour") \
     .mode("overwrite") \
     .bucketBy(numBuckets, "eventId") \
     .option("compression", "snappy") \
     .option("mergeSchema", "true") \
     .option("schema", location_events_schema)\
-    .option("path", output_path + "location_events_output") \
+    .option("path", output_path + "location_events_output")\
     .saveAsTable("location_events")
 
 # location_events_df\
@@ -197,23 +214,23 @@ diagnostic_events_schema = StructType(
             StructField("pressure", DoubleType(), True),
             StructField("uom", StringType(), True),
             StructField("vehicleId", StringType(), True),
-            StructField("date", DateType(), True)
+            StructField("date", DateType(), True),
+            StructField("Hour", IntegerType(), True)
     ]
 )
-
+# fs.mkdirs(spark._jvm.org.apache.hadoop.fs.Path(output_path + "diagnostic_events_output"))
 diagnostic_events_df \
     .repartition(numBuckets, "eventId") \
     .write \
     .format("parquet") \
-    .partitionBy("date") \
+    .partitionBy("date", "Hour") \
     .mode("overwrite") \
     .bucketBy(numBuckets, "eventId") \
     .option("compression", "snappy") \
     .option("mergeSchema", "true") \
     .option("schema", diagnostic_events_schema)\
-    .option("path", output_path + "diagnostic_events_output") \
+    .option("path", output_path + "diagnostic_events_output")\
     .saveAsTable("diagnostic_events")
-
 # diagnostic_events_df\
 #   .write\
 #   .format("parquet")\
