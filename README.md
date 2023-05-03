@@ -43,7 +43,8 @@ python Hertz_Data_Procesing.py
 
 2. Verify that the output files have the expected schema and data.
 
-3. To ensure the partition hierarchy, the table_name should be the first level, followed by the date, and then by hour. 
+3. To ensure the partition hierarchy, the table_name(diagnostic_events_output and location_events_output) should be the first level, 
+   followed by the date(date = date=1980-01-01), and then by hour(Hour=0). 
    Additionally, the number of buckets mentioned is 2. The choice of the number of buckets is generally based on the number 
    of `executor_instances*executor_cores`. This partitioning scheme allows for efficient querying of the data based on the date and time, 
    while the number of buckets ensures that the data is evenly distributed across the cluster for parallel processing.
